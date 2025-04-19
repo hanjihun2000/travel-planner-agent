@@ -20,7 +20,7 @@ class CustomSerpAPITools(Toolkit):
         self.register(self.search_flight)
         self.register(self.search_hotel)
 
-    def search_flight(self, departure_id: str, arrival_id: str, outbound_date: str, return_date: Optional[str] = None, num_results: int = 3) -> str:
+    def search_flight(self, departure_id: str, arrival_id: str, outbound_date: str, return_date: Optional[str] = None, num_results: int = 5) -> str:
         """
         Search for flights using the Serpapi Google Flights API.
 
@@ -75,7 +75,7 @@ class CustomSerpAPITools(Toolkit):
         except Exception as e:
             return json.dumps({"error": f"Error searching for flights: {e}"})
 
-    def search_hotel(self, location: str, check_in_date: str, check_out_date: str, num_results: int = 3) -> str:
+    def search_hotel(self, location: str, check_in_date: str, check_out_date: str, adults: str, children: str = "0", num_results: int = 5) -> str:
         """
         Search for hotels using the Serpapi Google Hotels API.
 
@@ -105,7 +105,8 @@ class CustomSerpAPITools(Toolkit):
                 "q": location,
                 "check_in_date": check_in_date,
                 "check_out_date": check_out_date,
-                "adults": "2",  # Change to your preferred number of adults
+                "adults": adults,
+                "children": children,
                 "currency": "HKD",  # Change to your preferred currency
                 "hl": "en",
                 "api_key": self.api_key

@@ -3,3 +3,6 @@ google-genai
 duckduckgo-search
 google-search-results
 fastapi[standard]
+sqlalchemy
+mcp
+nest-asyncio
