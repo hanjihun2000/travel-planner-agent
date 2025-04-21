@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 
 from agno.agent import Agent
 from agno.models.google import Gemini
-
-# Session and Memory
 from agno.storage.json import JsonStorage
 from agno.memory.v2.db.sqlite import SqliteMemoryDb
 from agno.memory.v2.memory import Memory
@@ -19,10 +17,10 @@ from mcp import StdioServerParameters
 
 # Tools
 from agno.tools.duckduckgo import DuckDuckGoTools
+# from agno.tools.thinking import ThinkingTools
 from agno.tools.reasoning import ReasoningTools
 from custom_tool import CustomSerpAPITools
 
-# import prompt
 import prompt
 
 nest_asyncio.apply()
@@ -46,14 +44,13 @@ async def run_server() -> None:
         agent = Agent(
             name="Travel Planner Agent",
             memory=memory,
+            enable_user_memories=True,
             storage=JsonStorage(dir_path="assets/agent_sessions_json"),
             model=Gemini(
                 id="gemini-2.0-flash-001",
                 vertexai=True,
                 project_id=project_id,
                 location=location,
-                # search=True, # Enable Gemini's built-in search tool
-                show_tool_calls=True
             ),
             tools=[
                 mcp_tools,
@@ -62,19 +59,13 @@ async def run_server() -> None:
                 CustomSerpAPITools(),
             ],
             show_tool_calls=True,
-            description=prompt.description,
+            # description=prompt.description,
             instructions=prompt.instructions,
             expected_output=prompt.expected_output,
-            markdown=True,
             monitoring=True,
-            enable_user_memories=True,
+            markdown=True,
             add_datetime_to_instructions=True,
-            # add_history_to_messages=True,
-            # num_history_responses=3,
-            # read_chat_history=True,
-            # read_tool_call_history=True,
-            # debug_mode=True,
-            stream_intermediate_steps=True,
+            debug_mode=True,  # Enable debug mode for detailed logs, only for testing
         )
 
         playground = Playground(agents=[agent])

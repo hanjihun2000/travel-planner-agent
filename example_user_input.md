@@ -1,4 +1,4 @@
-Please help me plan a trip with the following details:
+Better to include the following information in your request to get the best results:
 
 - Destination(s): [City, Country or multiple locations]
 - Travel Dates: [Start date] to [End date]
@@ -13,8 +13,4 @@ Please help me plan a trip with the following details:
 
 Example:
 
-Plan a trip to Korea from May 23rd to May 28th for 2 adults (one is a first-time visitor). We love eating local food, shopping, and exploring cultural sites. Our budget is HK$5000 each. We want to stay in a hotel or airbnb close to the main subway station with good reviews. Please provide the best flight options from Hong Kong, accommodation suggestions, a detailed day-by-day itinerary including must-see activities, and a budget breakdown.
-
----
-
-Feel free to provide your travel details following this template, and I will create a personalized, optimized travel plan for you!
+Plan a trip to Seoul from May 23rd to May 28th for 2 adults. We love eating local food, shopping, and exploring cultural sites. Our budget is HK$10,000 for each person. We want to stay in a hotel or airbnb close to the main subway station like Hongdae station with good reviews, two beds. Provide the best flight options from Hong Kong, accommodation suggestions, a detailed day-by-day itinerary including must-see activities, and a budget breakdown in markdown format!
