@@ -82,13 +82,13 @@ async def run_server() -> None:
                 CustomSerpAPITools(),
             ],
             show_tool_calls=True,
-            # description=prompt.description,
+            description=prompt.description,
             instructions=prompt.instructions,
             expected_output=prompt.expected_output,
             monitoring=True,
             markdown=True,
             add_datetime_to_instructions=True,
-            # debug_mode=True,  # Enable debug mode for detailed logs, only for testing
+            debug_mode=True,  # Enable debug mode for detailed logs, only for testing
         )
 
         playground = Playground(agents=[agent])
