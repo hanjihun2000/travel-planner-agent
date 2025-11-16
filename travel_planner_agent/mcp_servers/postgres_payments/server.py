@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import os
+import secrets
 from typing import Any, AsyncIterator
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -228,6 +229,290 @@ async def list_payment_activity(
     if ctx is not None:
         await ctx.debug("Retrieved %s payment activity rows", len(payload))
     return {"payments": payload}
+
+
+@mcp.tool()
+async def simulate_hotel_payment(
+    ctx: Context[ServerSession, LifespanState] | None = None,
+    hotel_name: str = "",
+    amount_cents: int = 0,
+    currency: str = "USD",
+    session_id: str | None = None,
+    user_id: str | None = None,
+    check_in_date: str | None = None,
+    check_out_date: str | None = None,
+    guest_name: str | None = None,
+) -> dict[str, Any]:
+    """Simulate a hotel booking payment transaction.
+
+    Args:
+        ctx: Optional MCP context for debug logging.
+        hotel_name: Name of the hotel vendor.
+        amount_cents: Payment amount in cents (must be positive).
+        currency: Three-letter currency code (default "USD").
+        session_id: Optional session identifier for tracking.
+        user_id: Optional user identifier for tracking.
+        check_in_date: Check-in date in ISO format (e.g., "2025-12-01").
+        check_out_date: Check-out date in ISO format (e.g., "2025-12-05").
+        guest_name: Name of the primary guest.
+
+    Returns:
+        Dictionary containing the created payment request and transaction details,
+        including the simulated confirmation code.
+    """
+    if not hotel_name or not hotel_name.strip():
+        raise ValueError("hotel_name is required")
+    if amount_cents <= 0:
+        raise ValueError("amount_cents must be positive")
+    if not currency or len(currency) != 3:
+        raise ValueError("currency must be a 3-letter code")
+
+    state = _require_state()
+
+    metadata = {
+        "booking_type": "hotel",
+        "check_in_date": check_in_date,
+        "check_out_date": check_out_date,
+        "guest_name": guest_name,
+    }
+
+    # Generate simulated confirmation code
+
+    confirmation_code = f"HTL-{secrets.token_hex(4).upper()}"
+
+    try:
+        async with state.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Insert payment request
+                await cur.execute(
+                    """
+                    INSERT INTO payment_requests
+                        (vendor, amount_cents, currency, session_id, user_id, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id, vendor, amount_cents, currency, session_id, user_id, metadata, created_at
+                    """,
+                    (hotel_name, amount_cents, currency, session_id, user_id, metadata),
+                )
+                request_row = await cur.fetchone()
+                if not request_row:
+                    raise RuntimeError("Failed to create payment request")
+
+                request_id = request_row["id"]
+
+                # Insert payment transaction
+                await cur.execute(
+                    """
+                    INSERT INTO payment_transactions
+                        (request_id, status, confirmation_code, vendor_reference, session_id, user_id, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id, request_id, status, confirmation_code, vendor_reference, session_id, user_id, metadata, created_at
+                    """,
+                    (
+                        request_id,
+                        "confirmed",
+                        confirmation_code,
+                        f"VENDOR-{secrets.token_hex(3).upper()}",
+                        session_id,
+                        user_id,
+                        {"payment_method": "simulated_credit_card"},
+                    ),
+                )
+                transaction_row = await cur.fetchone()
+                if not transaction_row:
+                    raise RuntimeError("Failed to create payment transaction")
+
+    except Exception as exc:
+        logger.exception("simulate_hotel_payment failed: %s", exc)
+        if ctx is not None:
+            await ctx.debug(f"Hotel payment simulation failed: {exc}")
+        raise
+
+    result = {
+        "payment_request": dict(request_row),
+        "payment_transaction": dict(transaction_row),
+    }
+
+    if ctx is not None:
+        await ctx.debug(f"Simulated hotel payment: {confirmation_code}")
+
+    return result
+
+
+@mcp.tool()
+async def simulate_flight_payment(
+    ctx: Context[ServerSession, LifespanState] | None = None,
+    airline: str = "",
+    amount_cents: int = 0,
+    currency: str = "USD",
+    session_id: str | None = None,
+    user_id: str | None = None,
+    departure_airport: str | None = None,
+    arrival_airport: str | None = None,
+    departure_date: str | None = None,
+    passenger_name: str | None = None,
+) -> dict[str, Any]:
+    """Simulate a flight booking payment transaction.
+
+    Args:
+        ctx: Optional MCP context for debug logging.
+        airline: Name of the airline vendor.
+        amount_cents: Payment amount in cents (must be positive).
+        currency: Three-letter currency code (default "USD").
+        session_id: Optional session identifier for tracking.
+        user_id: Optional user identifier for tracking.
+        departure_airport: IATA code for departure airport (e.g., "SFO").
+        arrival_airport: IATA code for arrival airport (e.g., "LHR").
+        departure_date: Departure date in ISO format (e.g., "2025-12-01").
+        passenger_name: Name of the primary passenger.
+
+    Returns:
+        Dictionary containing the created payment request and transaction details,
+        including the simulated PNR/confirmation code.
+    """
+    if not airline or not airline.strip():
+        raise ValueError("airline is required")
+    if amount_cents <= 0:
+        raise ValueError("amount_cents must be positive")
+    if not currency or len(currency) != 3:
+        raise ValueError("currency must be a 3-letter code")
+
+    state = _require_state()
+
+    metadata = {
+        "booking_type": "flight",
+        "departure_airport": departure_airport,
+        "arrival_airport": arrival_airport,
+        "departure_date": departure_date,
+        "passenger_name": passenger_name,
+    }
+
+    # Generate simulated PNR/confirmation code
+
+    confirmation_code = f"FLT-{secrets.token_hex(3).upper()}"
+    pnr = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
+
+    try:
+        async with state.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Insert payment request
+                await cur.execute(
+                    """
+                    INSERT INTO payment_requests
+                        (vendor, amount_cents, currency, session_id, user_id, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id, vendor, amount_cents, currency, session_id, user_id, metadata, created_at
+                    """,
+                    (airline, amount_cents, currency, session_id, user_id, metadata),
+                )
+                request_row = await cur.fetchone()
+                if not request_row:
+                    raise RuntimeError("Failed to create payment request")
+
+                request_id = request_row["id"]
+
+                # Insert payment transaction with PNR
+                await cur.execute(
+                    """
+                    INSERT INTO payment_transactions
+                        (request_id, status, confirmation_code, vendor_reference, session_id, user_id, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id, request_id, status, confirmation_code, vendor_reference, session_id, user_id, metadata, created_at
+                    """,
+                    (
+                        request_id,
+                        "confirmed",
+                        confirmation_code,
+                        pnr,
+                        session_id,
+                        user_id,
+                        {"payment_method": "simulated_credit_card", "pnr": pnr},
+                    ),
+                )
+                transaction_row = await cur.fetchone()
+                if not transaction_row:
+                    raise RuntimeError("Failed to create payment transaction")
+
+    except Exception as exc:
+        logger.exception("simulate_flight_payment failed: %s", exc)
+        if ctx is not None:
+            await ctx.debug(f"Flight payment simulation failed: {exc}")
+        raise
+
+    result = {
+        "payment_request": dict(request_row),
+        "payment_transaction": dict(transaction_row),
+    }
+
+    if ctx is not None:
+        await ctx.debug(f"Simulated flight payment: {confirmation_code} (PNR: {pnr})")
+
+    return result
+
+
+@mcp.tool()
+async def cancel_payment(
+    ctx: Context[ServerSession, LifespanState] | None = None,
+    confirmation_code: str = "",
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Cancel or refund a payment transaction by confirmation code.
+
+    Args:
+        ctx: Optional MCP context for debug logging.
+        confirmation_code: The confirmation code from the original transaction.
+        reason: Optional cancellation reason.
+
+    Returns:
+        Dictionary containing the updated transaction details with status
+        changed to "cancelled".
+    """
+    if not confirmation_code or not confirmation_code.strip():
+        raise ValueError("confirmation_code is required")
+
+    state = _require_state()
+
+    try:
+        async with state.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Find and update the transaction
+                await cur.execute(
+                    """
+                    UPDATE payment_transactions
+                    SET status = 'cancelled',
+                        metadata = metadata || %s::jsonb
+                    WHERE confirmation_code = %s
+                    RETURNING id, request_id, status, confirmation_code, vendor_reference, 
+                              session_id, user_id, metadata, created_at
+                    """,
+                    (
+                        {
+                            "cancellation_reason": reason,
+                            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                        confirmation_code,
+                    ),
+                )
+                transaction_row = await cur.fetchone()
+
+                if not transaction_row:
+                    raise ValueError(
+                        f"No transaction found with confirmation code: {confirmation_code}"
+                    )
+
+    except ValueError:
+        raise
+    except Exception as exc:
+        logger.exception("cancel_payment failed: %s", exc)
+        if ctx is not None:
+            await ctx.debug(f"Payment cancellation failed: {exc}")
+        raise
+
+    result = {"payment_transaction": dict(transaction_row)}
+
+    if ctx is not None:
+        await ctx.debug(f"Cancelled payment: {confirmation_code}")
+
+    return result
 
 
 def main() -> None:
