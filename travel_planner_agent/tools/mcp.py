@@ -51,11 +51,11 @@ def _register_postgres_toolset() -> MCPToolset | None:
     )
     if not module_path.exists():
         LOGGER.warning("Postgres MCP server not found at %s", module_path)
-        return
+        return None
 
     env = _collect_postgres_env()
     if env is None:
-        return
+        return None
 
     module_name = "travel_planner_agent.mcp_servers.postgres_payments.server"
 
@@ -75,3 +75,32 @@ def _register_postgres_toolset() -> MCPToolset | None:
 toolset = _register_postgres_toolset()
 if toolset is not None:
     AVAILABLE_MCP_TOOLSETS.append(toolset)
+
+
+def _register_itinerary_export_toolset() -> MCPToolset | None:
+    module_path = (
+        Path(__file__).resolve().parent.parent
+        / "mcp_servers"
+        / "itinerary_export"
+        / "server.py"
+    )
+    if not module_path.exists():
+        LOGGER.warning("Itinerary export MCP server not found at %s", module_path)
+        return None
+
+    module_name = "travel_planner_agent.mcp_servers.itinerary_export.server"
+    toolset = MCPToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command=sys.executable,
+                args=["-m", module_name],
+            )
+        )
+    )
+    LOGGER.info("Registered itinerary export MCP toolset via module %s", module_name)
+    return toolset
+
+
+export_toolset = _register_itinerary_export_toolset()
+if export_toolset is not None:
+    AVAILABLE_MCP_TOOLSETS.append(export_toolset)

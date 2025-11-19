@@ -35,6 +35,7 @@ Receive from planning_agent:
 	<selected_return_flight>{selected_return_flight?}</selected_return_flight>
 	<selected_hotel>{selected_hotel?}</selected_hotel>
 	<total_estimated_cost>{total_estimated_cost?}</total_estimated_cost>
+   <currency>{currency?}</currency>
 	<user_confirmed>{user_confirmed?}</user_confirmed>
 
 Also accept legacy format:
@@ -51,18 +52,20 @@ Collect if missing:
 	<passenger_name>{passenger_name?}</passenger_name>
 	<guest_name>{guest_name?}</guest_name>
 	<contact_email>{contact_email?}</contact_email>
+	<currency>{currency?}</currency>
 </INPUTS_EXPECTED>
 
 <PAYMENT_WORKFLOW>
 1. Extract pricing from planning_agent's selections:
    - Flight prices are in the "price" field (convert to cents: multiply by 100)
    - Hotel prices may be "rate_per_night" × nights or "total_price" (convert to cents: multiply by 100)
-   - IMPORTANT: Always convert dollar amounts to cents before calling payment tools
+   - IMPORTANT: Always convert traveler-selected currency amounts to cents before calling payment tools
 
 2. Extract booking metadata:
    - Flight: airline name, flight number, departure_airport, arrival_airport, departure_date
    - Hotel: hotel name, address, check_in_date, check_out_date
    - Passenger/guest names: extract from user_profile if available, otherwise ask user
+   - Currency: confirm and pass the ISO 4217 code into every payment tool invocation
 
 3. Call payment simulation tools:
    Example for flight:
@@ -70,7 +73,7 @@ Collect if missing:
    simulate_flight_payment(
      airline="United Airlines",
      amount_cents=85000,  # $850 * 100
-     currency="USD",
+   currency="USD",
      departure_airport="SFO",
      arrival_airport="NRT",
      departure_date="2025-12-01",
@@ -85,7 +88,7 @@ Collect if missing:
    simulate_hotel_payment(
      hotel_name="Hotel Gracery Shinjuku",
      amount_cents=60000,  # $600 * 100
-     currency="USD",
+       currency="USD",
      check_in_date="2025-12-01",
      check_out_date="2025-12-05",
      guest_name="John Doe",
@@ -119,10 +122,10 @@ After successful payment simulations:
 
 3. Prepare structured handoff for itinerary_agent with all confirmation data
 
-4. Display confirmation summary to user:
-   "✅ Flight confirmed | Code: FLT-XXX | PNR: YYY | Paid: $XXX"
-   "✅ Hotel confirmed | Code: HTL-XXX | Paid: $XXX"
-   "Total charged: $XXX USD"
+4. Display a concise confirmation summary to the user using the requested currency, for example:
+   "Flight confirmed | Code: FLT-XXX | PNR: YYY | Paid: 850 USD"
+   "Hotel confirmed | Code: HTL-XXX | Paid: 600 USD"
+   "Total charged: 1,450 USD"
 </CONFIRMATION_MANAGEMENT>
 
 <WORKFLOW>

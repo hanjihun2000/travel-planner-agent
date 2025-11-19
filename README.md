@@ -333,6 +333,7 @@ Planning Agent:
 - Present top results (default 5)
 - Auto-select if requested by user
 - **ASK USER CONFIRMATION before booking**
+- Capture the traveler's preferred currency and keep all quotes consistent
 - Structure selections for booking agent
 
 **Tools Available**:
@@ -340,6 +341,12 @@ Planning Agent:
 - `search_flight` (SerpAPI Google Flights)
 - `search_hotel` (SerpAPI Google Hotels)
 - `web_search` (DuckDuckGo)
+
+Both search tools now accept an optional `currency` parameter and honor
+`SERP_API_DEFAULT_CURRENCY` / `TRAVEL_DEFAULT_CURRENCY` env vars. SerpAPI calls are
+limited to `SERP_API_MAX_ATTEMPTS` (defaults to 1) to stay within the 100 requests / month quota.
+Round-trip flight lookups automatically follow the `departure_token` to fetch the
+return leg for up to `SERP_API_MAX_RETURN_QUERIES` outbound options (defaults to 3).
 
 **Model**: `gemini-2.0-flash`
 
@@ -368,6 +375,7 @@ Planning Agent:
     "rating": 4.5
   },
   "total_estimated_cost": 1450,
+   "currency_code": "USD",
   "user_confirmed": true
 }
 ```
@@ -414,6 +422,7 @@ Pass summary to booking_agent:
 - Track PNR for flights
 - Validate payment success
 - Hand off confirmations to itinerary agent
+- Ensure every payment simulation uses the traveler-selected ISO 4217 currency code
 
 **Tools Available** (TODO: Add):
 
@@ -473,9 +482,12 @@ Pass summary to booking_agent:
 - Display flight/hotel details with confirmation codes
 - Format payment summary
 - Include cancellation policies
-- Provide shareable output
+- Provide professional, emoji-free output that can be exported to files
 
-**Tools Available**: None (consumes data only)
+**Tools Available**:
+
+- `save_itinerary_file` (Markdown/plain text export)
+- `save_itinerary_calendar` (.ics calendar export)
 
 **Model**: `gemini-2.0-flash`
 
@@ -498,9 +510,9 @@ Pass summary to booking_agent:
 
 ```xml
 <CONFIRMATION_DISPLAY>
-In the itinerary, prominently display:
-- Flight: "✓ Confirmed | Code: [code] | PNR: [pnr]"
-- Hotel: "✓ Confirmed | Code: [code]"
+Use clear section headings instead of emojis:
+- Flight: "Status: Confirmed | Code: [code] | PNR: [pnr] | Paid: [amount currency]"
+- Hotel: "Status: Confirmed | Code: [code] | Paid: [amount currency]"
 - Total paid: "[currency] [total]"
 - Payment method: "Simulated Credit Card"
 </CONFIRMATION_DISPLAY>
@@ -603,6 +615,35 @@ if os.getenv("PAYMENTS_DB_URL"):
         )
     ]
 ```
+
+---
+
+### Itinerary Export MCP Server
+
+**File**: `travel_planner_agent/mcp_servers/itinerary_export/server.py`
+
+Provides lightweight tools so agents can persist itineraries for users who want to
+download the plan to their phone or laptop.
+
+**Tools Exposed**:
+
+1. **`save_itinerary_file(filename, content, format="md", subdirectory=None)`**
+
+   - Writes Markdown or plain-text content to the exports directory
+   - Returns the saved path and byte count
+
+2. **`save_itinerary_calendar(filename, events, subdirectory=None)`**
+   - Accepts a list of `{summary, start, end, description, location}` events
+   - Emits a standards-compliant `.ics` file that travelers can import into Calendar apps
+
+**Configuration**:
+
+- `ITINERARY_EXPORT_DIR` or `TRAVEL_EXPORT_DIR` (optional): override the default
+  exports directory (defaults to `<repo>/exports`).
+- Files are written with sanitized names to prevent path traversal.
+
+The same MCP toolset is shared with the root, booking, and itinerary agents so any
+of them can fulfill “save/share my itinerary” requests.
 
 ---
 
@@ -746,6 +787,10 @@ if os.getenv("PAYMENTS_DB_URL"):
 
    # SerpAPI
    SERP_API_KEY=your_serpapi_key_here
+   SERP_API_DEFAULT_CURRENCY=USD
+   TRAVEL_DEFAULT_CURRENCY=USD
+   SERP_API_MAX_ATTEMPTS=1
+   SERP_API_MAX_RETURN_QUERIES=3
 
    # Google Cloud (for Vertex AI)
    GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
@@ -753,6 +798,8 @@ if os.getenv("PAYMENTS_DB_URL"):
 
    # Optional: MCP Server Logging
    PAYMENTS_MCP_LOG_LEVEL=INFO
+   ITINERARY_EXPORT_DIR=./exports
+   ITINERARY_EXPORT_LOG_LEVEL=INFO
    EOF
    ```
 

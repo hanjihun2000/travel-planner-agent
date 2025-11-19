@@ -29,6 +29,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
+from psycopg.types.json import Json
 
 from .config import PostgresConfig
 
@@ -142,6 +143,12 @@ def _require_state() -> LifespanState:
         logger.error("Lifespan state is not available")
         raise RuntimeError("lifespan state unavailable")
     return _STATE
+
+
+def _jsonb(value: Any) -> Json:
+    """Wrap Python values for JSONB storage."""
+
+    return Json(value)
 
 
 @mcp.tool()
@@ -291,7 +298,14 @@ async def simulate_hotel_payment(
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id, vendor, amount_cents, currency, session_id, user_id, metadata, created_at
                     """,
-                    (hotel_name, amount_cents, currency, session_id, user_id, metadata),
+                    (
+                        hotel_name,
+                        amount_cents,
+                        currency,
+                        session_id,
+                        user_id,
+                        _jsonb(metadata),
+                    ),
                 )
                 request_row = await cur.fetchone()
                 if not request_row:
@@ -314,7 +328,7 @@ async def simulate_hotel_payment(
                         f"VENDOR-{secrets.token_hex(3).upper()}",
                         session_id,
                         user_id,
-                        {"payment_method": "simulated_credit_card"},
+                        _jsonb({"payment_method": "simulated_credit_card"}),
                     ),
                 )
                 transaction_row = await cur.fetchone()
@@ -402,7 +416,14 @@ async def simulate_flight_payment(
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id, vendor, amount_cents, currency, session_id, user_id, metadata, created_at
                     """,
-                    (airline, amount_cents, currency, session_id, user_id, metadata),
+                    (
+                        airline,
+                        amount_cents,
+                        currency,
+                        session_id,
+                        user_id,
+                        _jsonb(metadata),
+                    ),
                 )
                 request_row = await cur.fetchone()
                 if not request_row:
@@ -425,7 +446,7 @@ async def simulate_flight_payment(
                         pnr,
                         session_id,
                         user_id,
-                        {"payment_method": "simulated_credit_card", "pnr": pnr},
+                        _jsonb({"payment_method": "simulated_credit_card", "pnr": pnr}),
                     ),
                 )
                 transaction_row = await cur.fetchone()
@@ -485,10 +506,12 @@ async def cancel_payment(
                               session_id, user_id, metadata, created_at
                     """,
                     (
-                        {
-                            "cancellation_reason": reason,
-                            "cancelled_at": datetime.now(timezone.utc).isoformat(),
-                        },
+                        _jsonb(
+                            {
+                                "cancellation_reason": reason,
+                                "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        ),
                         confirmation_code,
                     ),
                 )

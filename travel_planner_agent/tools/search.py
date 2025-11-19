@@ -1,12 +1,29 @@
 """Search tools for travel planner agent.
 
-Provides functions to search for flights, hotels, and general web information.
+Provides functions to search for flights, hotels, and general web information
+while respecting the user's preferred currency and a conservative retry policy.
 """
 
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from typing import Any, Optional
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(1, parsed)
+
+
+SERP_API_MAX_ATTEMPTS = _env_int("SERP_API_MAX_ATTEMPTS", 1)
+DEFAULT_SERP_CURRENCY = (os.getenv("SERP_API_DEFAULT_CURRENCY") or "USD").upper()
 
 try:
     import serpapi
@@ -18,12 +35,36 @@ def _require_serpapi_key() -> Optional[str]:
     return os.getenv("SERP_API_KEY")
 
 
+def _resolve_currency(currency: Optional[str]) -> str:
+    """Return an uppercase currency code with sane fallback."""
+
+    value = (
+        currency or os.getenv("TRAVEL_DEFAULT_CURRENCY") or DEFAULT_SERP_CURRENCY
+    ).strip()
+    return value.upper() or DEFAULT_SERP_CURRENCY
+
+
+def _execute_serpapi_search(params: dict[str, Any]) -> dict[str, Any]:
+    """Run a SerpAPI query with a capped number of attempts."""
+
+    last_error: Exception | None = None
+    for attempt in range(SERP_API_MAX_ATTEMPTS):
+        try:
+            return serpapi.GoogleSearch(params).get_dict()
+        except Exception as exc:  # pragma: no cover - serpapi network dependency
+            last_error = exc
+            if attempt == SERP_API_MAX_ATTEMPTS - 1:
+                raise
+    raise last_error  # pragma: no cover - defensive guard
+
+
 def search_flight(
     departure_id: str,
     arrival_id: str,
     outbound_date: str,
-    return_date: Optional[str] = None,
-    num_results: int = 5,
+    return_date: str,
+    num_results: int = 3,
+    currency: Optional[str] = None,
 ) -> dict[str, Any]:
     """Search for flights via SerpAPI Google Flights.
 
@@ -31,52 +72,120 @@ def search_flight(
         departure_id: IATA code for the departure airport (for example, "SFO").
         arrival_id: IATA code for the arrival airport (for example, "LHR").
         outbound_date: Outbound travel date formatted as "YYYY-MM-DD".
-        return_date: Optional return date formatted as "YYYY-MM-DD".
-        num_results: Maximum number of itineraries to include in the response.
+        return_date: Return travel date formatted as "YYYY-MM-DD". Since this is a round-trip search, this parameter is required.
+        num_results: Maximum number of itineraries to include in the response. Defaults to top 3.
+        currency: Optional ISO 4217 code to quote results in. Defaults to ``SERP_API_DEFAULT_CURRENCY`` or ``USD`` if unset.
 
     Returns:
-        A dictionary with status and either best_flights containing the
-        truncated list of itineraries returned by SerpAPI or error_message
-        when the lookup fails.
+        A dictionary with ``status``. On success, ``best_flights`` contains the
+        selected outbound itineraries enriched with ``return_best_flights`` when
+        available. ``other_flights`` and ``price_insights`` are included when
+        provided by SerpAPI. On failure, ``error_message`` describes the issue.
     """
     api_key = _require_serpapi_key()
     if serpapi is None:
         return {"status": "error", "error_message": "serpapi package not installed"}
     if not api_key:
-        return {"status": "error", "error_message": "serp api key missing"}
+        return {"status": "error", "error_message": "Serp API key missing"}
     if not (departure_id and arrival_id and outbound_date):
         return {
             "status": "error",
             "error_message": "departure_id, arrival_id, outbound_date required",
         }
-    try:
-        params = {
-            "engine": "google_flights",
-            "departure_id": departure_id,
-            "arrival_id": arrival_id,
-            "outbound_date": outbound_date,
-            "currency": "HKD",  # TODO: change to local currency based on user location
-            "hl": "en",
-            "api_key": api_key,
+    if not return_date:
+        return {
+            "status": "error",
+            "error_message": "return_date required for round-trip flight search",
         }
-        if return_date:
-            params["return_date"] = return_date
-        results = serpapi.GoogleSearch(params).get_dict()
+    base_params = {
+        "engine": "google_flights",
+        "departure_id": departure_id,
+        "arrival_id": arrival_id,
+        "outbound_date": outbound_date,
+        "return_date": return_date,
+        "currency": _resolve_currency(currency),
+        "hl": "en",
+        "api_key": api_key,
+        # TODO: expose optional parameters (bags, travel_class, etc.) through function arguments
+        "bags": "1",
+    }
+
+    try:
+        results = _execute_serpapi_search(base_params)
         if "error" in results:
             return {"status": "error", "error_message": results["error"]}
-        best_flights = (results.get("best_flights") or [])[: num_results or 5]
-        return {"status": "success", "best_flights": best_flights}
+
+        outbound_candidates = (results.get("best_flights") or [])[:num_results]
+        enriched_outbound: list[dict[str, Any]] = []
+        return_queries = 0
+        for flight in outbound_candidates:
+            enriched = deepcopy(flight)
+            token = flight.get("departure_token")
+            if token and return_queries < num_results:
+                return_data = _fetch_return_flights(base_params, token, num_results)
+                if return_data["status"] == "success":
+                    enriched["return_best_flights"] = return_data.get(
+                        "best_flights", []
+                    )
+                    # if return_data.get("other_flights"):
+                    #     enriched["return_other_flights"] = return_data["other_flights"]
+                else:
+                    enriched["return_error"] = return_data["error_message"]
+                return_queries += 1
+            elif token is None:
+                enriched["return_warning"] = (
+                    "departure_token not provided; unable to fetch return flights"
+                )
+            enriched_outbound.append(enriched)
+
+        payload: dict[str, Any] = {
+            "status": "success",
+            "best_flights": enriched_outbound,
+        }
+        # TODO: ignore other_flights at this moment to not dump too many info to sub-agents
+        # other_flights = results.get("other_flights") or []
+        # if other_flights:
+        #     payload["other_flights"] = other_flights[:num_results]
+        price_insights = results.get("price_insights")
+        if price_insights:
+            payload["price_insights"] = price_insights
+        return payload
     except Exception as e:
         return {"status": "error", "error_message": f"flight search failed: {e}"}
+
+
+def _fetch_return_flights(
+    base_params: dict[str, Any], departure_token: str, num_results: int
+) -> dict[str, Any]:
+    """Retrieve return leg options using SerpAPI's departure_token."""
+
+    params = {**base_params, "departure_token": departure_token}
+    try:
+        data = _execute_serpapi_search(params)
+    except Exception as exc:  # pragma: no cover - network dependency
+        return {
+            "status": "error",
+            "error_message": f"return flight search failed: {exc}",
+        }
+
+    if "error" in data:
+        return {"status": "error", "error_message": data["error"]}
+
+    return {
+        "status": "success",
+        "best_flights": (data.get("best_flights") or [])[:num_results],
+        "other_flights": (data.get("other_flights") or [])[:num_results],
+    }
 
 
 def search_hotel(
     location: str,
     check_in_date: str,
     check_out_date: str,
-    adults: str = "2",
+    adults: str = "1",
     children: str = "0",
-    num_results: int = 5,
+    num_results: int = 3,
+    currency: Optional[str] = None,
 ) -> dict[str, Any]:
     """Search for hotels via SerpAPI Google Hotels.
 
@@ -87,16 +196,17 @@ def search_hotel(
         adults: Number of adults encoded as a string per SerpAPI requirements.
         children: Number of children encoded as a string per SerpAPI requirements.
         num_results: Maximum number of hotel properties to include in the result.
+        currency: Optional ISO 4217 code to quote nightly rates in. Defaults to ``SERP_API_DEFAULT_CURRENCY`` or ``USD`` if unset.
 
     Returns:
-        A dictionary with status and either properties containing hotel
-        metadata returned by SerpAPI or error_message if the lookup fails.
+        A dictionary with status and either ``properties`` containing hotel
+        metadata returned by SerpAPI or ``error_message`` if the lookup fails.
     """
     api_key = _require_serpapi_key()
     if serpapi is None:
         return {"status": "error", "error_message": "serpapi package not installed"}
     if not api_key:
-        return {"status": "error", "error_message": "serp api key missing"}
+        return {"status": "error", "error_message": "Serp API key missing"}
     if not (location and check_in_date and check_out_date):
         return {
             "status": "error",
@@ -110,11 +220,11 @@ def search_hotel(
             "check_out_date": check_out_date,
             "adults": adults,
             "children": children,
-            "currency": "HKD",  # TODO: change to local currency based on user location
+            "currency": _resolve_currency(currency),
             "hl": "en",
             "api_key": api_key,
         }
-        results = serpapi.GoogleSearch(params).get_dict()
+        results = _execute_serpapi_search(params)
         if "error" in results:
             return {"status": "error", "error_message": results["error"]}
         props = (results.get("properties") or [])[: num_results or 5]
@@ -123,7 +233,8 @@ def search_hotel(
         return {"status": "error", "error_message": f"hotel search failed: {e}"}
 
 
-def web_search(query: str, num_results: int = 5) -> dict[str, Any]:
+# Deprecated: use google-search instead
+def search_web(query: str, num_results: int = 5) -> dict[str, Any]:
     """Retrieve quick destination summaries using DuckDuckGo Instant Answer.
 
     Args:
