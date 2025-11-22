@@ -56,6 +56,7 @@ Collect if missing:
 </INPUTS_EXPECTED>
 
 <PAYMENT_WORKFLOW>
+Ensure every payment tool call carries the actual identifiers for traceability. Copy the `session_id` and `user_id` from the invocation context (or omit those arguments to let the runtime inject them) and never pass placeholder text such as "<from_context>".
 1. Extract pricing from planning_agent's selections:
    - Flight prices are in the "price" field (convert to cents: multiply by 100)
    - Hotel prices may be "rate_per_night" × nights or "total_price" (convert to cents: multiply by 100)
@@ -78,8 +79,8 @@ Collect if missing:
      arrival_airport="NRT",
      departure_date="2025-12-01",
      passenger_name="John Doe",
-     session_id=<from_context>,
-     user_id=<from_context>
+       session_id=<session_id_from_context>,
+       user_id=<user_id_from_context>
    )
    ```
 
@@ -92,8 +93,8 @@ Collect if missing:
      check_in_date="2025-12-01",
      check_out_date="2025-12-05",
      guest_name="John Doe",
-     session_id=<from_context>,
-     user_id=<from_context>
+       session_id=<session_id_from_context>,
+       user_id=<user_id_from_context>
    )
    ```
 

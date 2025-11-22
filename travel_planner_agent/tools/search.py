@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 
 def _env_int(name: str, default: int) -> int:
@@ -56,6 +56,33 @@ def _execute_serpapi_search(params: dict[str, Any]) -> dict[str, Any]:
             if attempt == SERP_API_MAX_ATTEMPTS - 1:
                 raise
     raise last_error  # pragma: no cover - defensive guard
+
+
+def _serialize_many(
+    value: Optional[Iterable[Any] | str | int | float],
+) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    if isinstance(value, (int, float)):
+        return str(value)
+    items = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            items.append(text)
+    if not items:
+        return None
+    return ",".join(items)
+
+
+def _serialize_simple(value: Optional[int | float | str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def search_flight(
@@ -186,6 +213,13 @@ def search_hotel(
     children: str = "0",
     num_results: int = 3,
     currency: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    min_price: Optional[str] = None,
+    max_price: Optional[str] = None,
+    property_types: Optional[str] = None,
+    amenities: Optional[str] = None,
+    rating: Optional[str] = None,
+    hotel_class: Optional[str] = None,
 ) -> dict[str, Any]:
     """Search for hotels via SerpAPI Google Hotels.
 
@@ -197,6 +231,13 @@ def search_hotel(
         children: Number of children encoded as a string per SerpAPI requirements.
         num_results: Maximum number of hotel properties to include in the result.
         currency: Optional ISO 4217 code to quote nightly rates in. Defaults to ``SERP_API_DEFAULT_CURRENCY`` or ``USD`` if unset.
+        sort_by: Optional numeric sort identifier (for example, ``"3"`` for lowest price).
+        min_price: Optional lower bound for nightly pricing.
+        max_price: Optional upper bound for nightly pricing.
+        property_types: Optional property type filter (comma-separated ids).
+        amenities: Optional amenity filter (comma-separated ids).
+        rating: Optional overall rating threshold (for example, ``"8"`` for 4.0+).
+        hotel_class: Optional hotel class filter (comma-separated star values).
 
     Returns:
         A dictionary with status and either ``properties`` containing hotel
@@ -224,6 +265,21 @@ def search_hotel(
             "hl": "en",
             "api_key": api_key,
         }
+
+        optional_params = {
+            "sort_by": _serialize_simple(sort_by),
+            "min_price": _serialize_simple(min_price),
+            "max_price": _serialize_simple(max_price),
+            "property_types": _serialize_many(property_types),
+            "amenities": _serialize_many(amenities),
+            "rating": _serialize_simple(rating),
+            "hotel_class": _serialize_many(hotel_class),
+        }
+
+        for key, value in optional_params.items():
+            if value is not None:
+                params[key] = value
+
         results = _execute_serpapi_search(params)
         if "error" in results:
             return {"status": "error", "error_message": results["error"]}

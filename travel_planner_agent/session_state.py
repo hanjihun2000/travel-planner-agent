@@ -325,6 +325,8 @@ def _record_export(
     state["latest_export_identifier"] = record.get("identifier")
     if record.get("download_url"):
         state[f"latest_{kind}_download_url"] = record["download_url"]
+    if record.get("file_path"):
+        state[f"latest_{kind}_file_path"] = record["file_path"]
 
 
 def _trim_flight_info(item: dict[str, Any]) -> dict[str, Any]:

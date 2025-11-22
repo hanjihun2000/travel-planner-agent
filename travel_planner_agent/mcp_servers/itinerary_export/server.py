@@ -171,12 +171,18 @@ def _ensure_unique_path(path: Path) -> tuple[Path, int]:
 
 
 def _build_download_url(config: ExportConfig, relative_path: Path) -> str | None:
-    if not config.public_url:
+    public_url = os.getenv("ITINERARY_EXPORT_PUBLIC_URL") or config.public_url
+    if not public_url:
         return None
     normalized = "/".join(relative_path.parts)
-    url = urljoin(f"{config.public_url}/", normalized)
-    if config.download_token:
-        query = urlencode({"token": config.download_token})
+    cleaned_public_url = public_url.rstrip("/")
+    url = urljoin(f"{cleaned_public_url}/", normalized)
+
+    download_token = (
+        os.getenv("ITINERARY_EXPORT_DOWNLOAD_TOKEN") or config.download_token
+    )
+    if download_token:
+        query = urlencode({"token": download_token})
         separator = "&" if "?" in url else "?"
         url = f"{url}{separator}{query}"
     return url

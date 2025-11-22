@@ -151,6 +151,131 @@ def _jsonb(value: Any) -> Json:
     return Json(value)
 
 
+_PLACEHOLDER_TOKENS = {"<from_context>", "{from_context}", "from_context"}
+_PLACEHOLDER_TOKENS_LOWER = {token.lower() for token in _PLACEHOLDER_TOKENS}
+
+
+def _sanitize_context_value(value: Any) -> str | None:
+    """Return cleaned context metadata, ignoring placeholder markers."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in _PLACEHOLDER_TOKENS_LOWER or "from_context" in lowered:
+        return None
+    if lowered in {"none", "null", ""}:
+        return None
+    return text
+
+
+def _resolve_context_value(
+    ctx: Context[ServerSession, LifespanState] | None,
+    explicit: str | None,
+    attr_candidates: tuple[str, ...],
+) -> str | None:
+    """Prefer explicit arguments but fall back to MCP session metadata."""
+
+    sanitized = _sanitize_context_value(explicit)
+    if sanitized:
+        return sanitized
+    if ctx is None:
+        return None
+
+    sources: list[Any] = [ctx]
+    session = getattr(ctx, "session", None)
+    if session is not None:
+        sources.append(session)
+    state = getattr(ctx, "state", None)
+    if state is not None and state not in sources:
+        sources.append(state)
+
+    for source in sources:
+        if source is None:
+            continue
+        for attr in attr_candidates:
+            candidate = _sanitize_context_value(getattr(source, attr, None))
+            if candidate:
+                return candidate
+            getter = getattr(source, "get", None)
+            if callable(getter):
+                try:
+                    candidate = _sanitize_context_value(getter(attr))
+                except Exception:
+                    candidate = None
+                if candidate:
+                    return candidate
+        metadata = getattr(source, "metadata", None)
+        if isinstance(metadata, dict):
+            for key in attr_candidates:
+                candidate = _sanitize_context_value(metadata.get(key))
+                if candidate:
+                    return candidate
+    try:
+        if os.getenv("PAYMENTS_MCP_LOG_LEVEL", "INFO").upper() == "DEBUG":
+            snapshots: list[dict[str, Any]] = []
+            for source in sources:
+                if source is None:
+                    continue
+                attrs = [name for name in dir(source) if not name.startswith("_")]
+                snapshot = {"type": type(source).__name__, "attrs": attrs}
+                session_attr = getattr(source, "session", None)
+                if session_attr is not None:
+                    snapshot["session_type"] = type(session_attr).__name__
+                    snapshot["session_attrs"] = [
+                        name for name in dir(session_attr) if not name.startswith("_")
+                    ]
+                snapshots.append(snapshot)
+            logger.debug(
+                "Unable to resolve context value for %s (explicit=%r). Sources: %s",
+                attr_candidates,
+                explicit,
+                snapshots,
+            )
+    except Exception:  # pragma: no cover - debug aid only
+        pass
+    return None
+
+
+def _resolve_session_identifier(
+    ctx: Context[ServerSession, LifespanState] | None,
+    explicit: str | None,
+) -> str | None:
+    return _resolve_context_value(ctx, explicit, ("session_id", "id"))
+
+
+def _resolve_user_identifier(
+    ctx: Context[ServerSession, LifespanState] | None,
+    explicit: str | None,
+) -> str | None:
+    return _resolve_context_value(ctx, explicit, ("user_id", "user", "account_id"))
+
+
+def _ensure_state_token(
+    ctx: Context[ServerSession, LifespanState] | None,
+    key: str,
+) -> str | None:
+    if ctx is None:
+        return None
+    state = getattr(ctx, "state", None)
+    if state is None:
+        return None
+    token = secrets.token_hex(6)
+    try:
+        setter = getattr(state, "setdefault", None)
+        if callable(setter):
+            existing = setter(key, token)
+        elif isinstance(state, dict):
+            existing = state.setdefault(key, token)
+        else:
+            existing = token
+    except Exception:
+        existing = token
+    return _sanitize_context_value(existing) or token
+
+
 @mcp.tool()
 async def ping_database(
     ctx: Context[ServerSession, LifespanState] | None = None,
@@ -276,6 +401,14 @@ async def simulate_hotel_payment(
 
     state = _require_state()
 
+    session_identifier = _resolve_session_identifier(ctx, session_id)
+    if session_identifier is None:
+        session_identifier = _ensure_state_token(ctx, "_payments_session_id")
+
+    user_identifier = _resolve_user_identifier(ctx, user_id)
+    if user_identifier is None:
+        user_identifier = _ensure_state_token(ctx, "_payments_user_id")
+
     metadata = {
         "booking_type": "hotel",
         "check_in_date": check_in_date,
@@ -302,8 +435,8 @@ async def simulate_hotel_payment(
                         hotel_name,
                         amount_cents,
                         currency,
-                        session_id,
-                        user_id,
+                        session_identifier,
+                        user_identifier,
                         _jsonb(metadata),
                     ),
                 )
@@ -326,8 +459,8 @@ async def simulate_hotel_payment(
                         "confirmed",
                         confirmation_code,
                         f"VENDOR-{secrets.token_hex(3).upper()}",
-                        session_id,
-                        user_id,
+                        session_identifier,
+                        user_identifier,
                         _jsonb({"payment_method": "simulated_credit_card"}),
                     ),
                 )
@@ -392,6 +525,14 @@ async def simulate_flight_payment(
 
     state = _require_state()
 
+    session_identifier = _resolve_session_identifier(ctx, session_id)
+    if session_identifier is None:
+        session_identifier = _ensure_state_token(ctx, "_payments_session_id")
+
+    user_identifier = _resolve_user_identifier(ctx, user_id)
+    if user_identifier is None:
+        user_identifier = _ensure_state_token(ctx, "_payments_user_id")
+
     metadata = {
         "booking_type": "flight",
         "departure_airport": departure_airport,
@@ -420,8 +561,8 @@ async def simulate_flight_payment(
                         airline,
                         amount_cents,
                         currency,
-                        session_id,
-                        user_id,
+                        session_identifier,
+                        user_identifier,
                         _jsonb(metadata),
                     ),
                 )
@@ -444,8 +585,8 @@ async def simulate_flight_payment(
                         "confirmed",
                         confirmation_code,
                         pnr,
-                        session_id,
-                        user_id,
+                        session_identifier,
+                        user_identifier,
                         _jsonb({"payment_method": "simulated_credit_card", "pnr": pnr}),
                     ),
                 )
