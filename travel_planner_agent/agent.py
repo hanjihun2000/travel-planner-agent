@@ -7,6 +7,7 @@ from travel_planner_agent import prompt
 from travel_planner_agent.sub_agents.itinerary_agent import itinerary_agent
 from travel_planner_agent.sub_agents.booking_agent import booking_agent
 from travel_planner_agent.sub_agents.planning_agent import planning_agent
+from travel_planner_agent.session_state import register_session_callbacks
 
 
 root_agent = Agent(
@@ -18,3 +19,5 @@ root_agent = Agent(
     instruction=prompt.ROOT_AGENT_INSTR,
     sub_agents=[planning_agent, booking_agent, itinerary_agent],
 )
+
+register_session_callbacks(root_agent)

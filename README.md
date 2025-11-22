@@ -630,20 +630,65 @@ download the plan to their phone or laptop.
 1. **`save_itinerary_file(filename, content, format="md", subdirectory=None)`**
 
    - Writes Markdown or plain-text content to the exports directory
-   - Returns the saved path and byte count
+   - Accepts optional `identifier` and `session_id` parameters; when omitted, the server derives a unique identifier using the MCP session and a random suffix so filenames never collide
+   - Returns the saved path, byte count, resolved identifier, and (when available) a download URL
 
 2. **`save_itinerary_calendar(filename, events, subdirectory=None)`**
    - Accepts a list of `{summary, start, end, description, location}` events
+   - Supports the same `identifier`/`session_id` parameters and reuses the identifier to align calendar exports with their corresponding itinerary documents
    - Emits a standards-compliant `.ics` file that travelers can import into Calendar apps
 
 **Configuration**:
 
 - `ITINERARY_EXPORT_DIR` or `TRAVEL_EXPORT_DIR` (optional): override the default
   exports directory (defaults to `<repo>/exports`).
+- `ITINERARY_EXPORT_PUBLIC_URL` (optional): base URL (for example, `http://127.0.0.1:8765/exports`) to include in tool responses so front-ends can render download buttons.
+- `ITINERARY_EXPORT_DOWNLOAD_TOKEN` (optional): shared secret required when hitting the download endpoint. When unset, downloads remain open to any caller that can reach the host.
 - Files are written with sanitized names to prevent path traversal.
+- Every export filename is suffixed with an identifier derived from the MCP session (when available) and a random component—for example, `trip-itinerary-SESSIONABC-9afc2f3d.md`. The identifier is also returned in the payload so follow-up calls can reuse it.
 
 The same MCP toolset is shared with the root, booking, and itinerary agents so any
 of them can fulfill “save/share my itinerary” requests.
+
+**Serving downloads locally**
+
+1. Export the directory and URL values:
+
+   ```bash
+   export ITINERARY_EXPORT_DIR="$PWD/exports"
+   export ITINERARY_EXPORT_PUBLIC_URL="http://127.0.0.1:8765/exports"
+   # Optional but recommended for demos
+   export ITINERARY_EXPORT_DOWNLOAD_TOKEN="demo-secret"
+   ```
+
+2. Start the static server in a separate terminal:
+
+   ```bash
+   python -m travel_planner_agent.mcp_servers.itinerary_export.web_server
+   ```
+
+   The server binds to `127.0.0.1` on port `8765` by default; override with
+   `ITINERARY_EXPORT_HOST` / `ITINERARY_EXPORT_PORT` if needed.
+
+3. When agents call `save_itinerary_file` or `save_itinerary_calendar`, the response
+   includes `download_url`. The ADK web front-end can turn that field into a
+   “Download” button for the traveler. Requests to the URL require the token if
+   one is configured (pass it as `?token=<value>` or the `X-Export-Token` header).
+
+Because the server listens on the loopback interface, files stay on your laptop
+unless you explicitly forward the port. Disable the token only for trusted local
+testing.
+
+### Session State Snapshotting
+
+- `travel_planner_agent/session_state.py` attaches callbacks to every agent so
+  key trip data survives across turns without replaying full transcripts.
+- Tool invocations automatically update state entries (`origin`, `destination`,
+  `start_date`, `end_date`, `currency`, confirmation codes, export links, etc.).
+- Rolling dialogue snippets are cached under `trip_summary` so prompts can stay
+  concise while retaining recent context.
+- The helper also tracks itinerary exports and payment confirmations, trimming
+  history to the most relevant items for follow-up steps.
 
 ---
 
@@ -988,112 +1033,6 @@ Root Agent:
 
 ---
 
-## Testing
-
-### Manual Testing Checklist
-
-#### Scenario 1: Full Autonomous Booking
-
-- [ ] User: "Book the cheapest flight and hotel to Tokyo for Dec 1-5"
-- [ ] Planning agent searches and auto-selects
-- [ ] Booking agent processes payments
-- [ ] Itinerary shows confirmations
-- [ ] Database has 2 requests + 2 transactions
-
-#### Scenario 2: User Confirmation Flow
-
-- [ ] User: "Find flights to Tokyo"
-- [ ] Planning shows options
-- [ ] Planning asks: "Shall I proceed?"
-- [ ] User: "Yes"
-- [ ] Booking executes
-- [ ] Confirmations displayed
-
-#### Scenario 3: User Declines and Requests Alternatives
-
-- [ ] Planning presents options
-- [ ] User: "No, show cheaper hotels"
-- [ ] Planning searches again
-- [ ] User confirms new options
-- [ ] Booking proceeds
-
-#### Scenario 4: Cancellation
-
-- [ ] User: "Cancel HTL-9D2E5F1A"
-- [ ] Booking agent calls `cancel_payment`
-- [ ] Database status → "cancelled"
-- [ ] User receives confirmation
-
-#### Scenario 5: Payment History
-
-- [ ] User: "Show my bookings"
-- [ ] Root calls `list_payment_activity`
-- [ ] Displays all transactions
-
-#### Scenario 6: Database Connectivity
-
-- [ ] Start server
-- [ ] Call `ping_database`
-- [ ] Returns pool status
-- [ ] No errors
-
-### Automated Testing (Future)
-
-```bash
-# Run unit tests
-pytest tests/
-
-# Run integration tests
-pytest tests/integration/
-
-# Test MCP server standalone
-python -m travel_planner_agent.mcp_servers.postgres_payments.server
-```
-
----
-
-## Implementation Status
-
-### ✅ Completed
-
-- [x] Root agent with coordinator pattern
-- [x] Planning agent with search tools
-- [x] Booking agent structure
-- [x] Itinerary agent structure
-- [x] MCP payment server with PostgreSQL
-- [x] `simulate_flight_payment` tool
-- [x] `simulate_hotel_payment` tool
-- [x] `cancel_payment` tool
-- [x] `list_payment_activity` tool
-- [x] `ping_database` tool
-- [x] Database schema with session/user tracking
-- [x] Global state pattern (no context dependency)
-- [x] MCP toolset registration
-
-### 🚧 In Progress
-
-- [ ] Add MCP tools to booking_agent (`tools=AVAILABLE_MCP_TOOLSETS`)
-- [ ] Update planning_agent prompt with confirmation flow
-- [ ] Update booking_agent prompt with payment workflow
-- [ ] Update itinerary_agent prompt with confirmation display
-- [ ] Test end-to-end user confirmation pattern
-- [ ] Validate payment extraction from search results
-
-### 📋 Planned
-
-- [ ] Add search tools to planning_agent (SerpAPI integration)
-- [ ] Session memory helpers for tracking selections
-- [ ] Price extraction utilities
-- [ ] Confirmation code validation
-- [ ] Multi-leg flight support
-- [ ] Multi-traveler bookings
-- [ ] Real-time price monitoring
-- [ ] Loyalty program integration
-- [ ] Email confirmation sending
-- [ ] Calendar integration
-
----
-
 ## Future Enhancements
 
 ### Short Term
@@ -1187,5 +1126,3 @@ For questions or issues:
 - Check ADK documentation: https://github.com/google/adk-python
 
 ---
-
-**Built with ❤️ using Google ADK and Gemini 2.0**
