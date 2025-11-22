@@ -207,13 +207,14 @@ def _ensure_unique_path(path: Path) -> tuple[Path, int]:
     stem = path.stem
     suffix = path.suffix
     counter = 1
+    MAX_ATTEMPTS = 1000
     while True:
+        if counter > MAX_ATTEMPTS:
+            raise RuntimeError(f"Unable to find unique filename after {MAX_ATTEMPTS} attempts")
         candidate = path.with_name(f"{stem}-{counter}{suffix}")
         if not candidate.exists():
             return candidate, counter
         counter += 1
-
-
 def _build_download_url(config: ExportConfig, relative_path: Path) -> str | None:
     base_url = _resolve_public_url(config)
     if not base_url:
