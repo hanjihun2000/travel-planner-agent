@@ -306,7 +306,7 @@ Planning Agent:
 - All MCP payment tools (for tracking and monitoring)
 - Sub-agent invocation
 
-**Model**: `gemini-2.0-flash`
+**Model**: `gemini-2.5-flash`
 
 **Key Prompt Sections**:
 
@@ -348,7 +348,7 @@ limited to `SERP_API_MAX_ATTEMPTS` (defaults to 1) to stay within the 100 reques
 Round-trip flight lookups automatically follow the `departure_token` to fetch the
 return leg for up to `SERP_API_MAX_RETURN_QUERIES` outbound options (defaults to 3).
 
-**Model**: `gemini-2.0-flash`
+**Model**: `gemini-2.5-flash`
 
 **Handoff Format** (to Booking Agent):
 
@@ -431,7 +431,7 @@ Pass summary to booking_agent:
 - `cancel_payment`
 - `list_payment_activity`
 
-**Model**: `gemini-2.0-flash`
+**Model**: `gemini-2.5-flash`
 
 **Payment Extraction Logic** (TODO: Add to Prompt):
 
@@ -489,7 +489,7 @@ Pass summary to booking_agent:
 - `save_itinerary_file` (Markdown/plain text export)
 - `save_itinerary_calendar` (.ics calendar export)
 
-**Model**: `gemini-2.0-flash`
+**Model**: `gemini-2.5-flash`
 
 **Input Expected** (from Booking Agent):
 
