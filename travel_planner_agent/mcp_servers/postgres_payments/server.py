@@ -154,6 +154,13 @@ def _jsonb(value: Any) -> Json:
 _PLACEHOLDER_TOKENS = {"<from_context>", "{from_context}", "from_context"}
 _PLACEHOLDER_TOKENS_LOWER = {token.lower() for token in _PLACEHOLDER_TOKENS}
 
+_SESSION_TOKEN_KEY = "_payments_session_id"
+_USER_TOKEN_KEY = "_payments_user_id"
+_SESSION_LOOKUP_KEYS = ("session_id", "sessionId", "session")
+_USER_LOOKUP_KEYS = ("user_id", "userId", "account_id", "accountId", "user")
+
+_FALLBACK_TOKENS: dict[str, str] = {}
+
 
 def _sanitize_context_value(value: Any) -> str | None:
     """Return cleaned context metadata, ignoring placeholder markers."""
@@ -171,98 +178,78 @@ def _sanitize_context_value(value: Any) -> str | None:
     return text
 
 
-def _resolve_context_value(
+def _random_identifier(prefix: str) -> str:
+    """Generate a short hex identifier with a descriptive prefix."""
+
+    return f"{prefix}-{secrets.token_hex(6)}"
+
+
+def _context_sources(
     ctx: Context[ServerSession, LifespanState] | None,
-    explicit: str | None,
-    attr_candidates: tuple[str, ...],
-) -> str | None:
-    """Prefer explicit arguments but fall back to MCP session metadata."""
+) -> list[Any]:
+    """Collect context-like objects worth inspecting for metadata."""
 
-    sanitized = _sanitize_context_value(explicit)
-    if sanitized:
-        return sanitized
     if ctx is None:
-        return None
-
+        return []
     sources: list[Any] = [ctx]
     session = getattr(ctx, "session", None)
     if session is not None:
         sources.append(session)
     state = getattr(ctx, "state", None)
-    if state is not None and state not in sources:
+    if state is not None:
         sources.append(state)
+    return sources
 
-    for source in sources:
-        if source is None:
-            continue
-        for attr in attr_candidates:
-            candidate = _sanitize_context_value(getattr(source, attr, None))
+
+def _extract_context_value(
+    ctx: Context[ServerSession, LifespanState] | None,
+    keys: tuple[str, ...],
+) -> str | None:
+    """Return the first non-empty attribute or mapping value for any key."""
+
+    for source in _context_sources(ctx):
+        for key in keys:
+            candidate = _sanitize_context_value(getattr(source, key, None))
             if candidate:
                 return candidate
+
+            if isinstance(source, dict):
+                candidate = _sanitize_context_value(source.get(key))
+                if candidate:
+                    return candidate
+
             getter = getattr(source, "get", None)
             if callable(getter):
                 try:
-                    candidate = _sanitize_context_value(getter(attr))
+                    candidate = _sanitize_context_value(getter(key))
                 except Exception:
                     candidate = None
                 if candidate:
                     return candidate
-        metadata = getattr(source, "metadata", None)
-        if isinstance(metadata, dict):
-            for key in attr_candidates:
+
+            metadata = getattr(source, "metadata", None)
+            if isinstance(metadata, dict):
                 candidate = _sanitize_context_value(metadata.get(key))
                 if candidate:
                     return candidate
-    try:
-        if os.getenv("PAYMENTS_MCP_LOG_LEVEL", "INFO").upper() == "DEBUG":
-            snapshots: list[dict[str, Any]] = []
-            for source in sources:
-                if source is None:
-                    continue
-                attrs = [name for name in dir(source) if not name.startswith("_")]
-                snapshot = {"type": type(source).__name__, "attrs": attrs}
-                session_attr = getattr(source, "session", None)
-                if session_attr is not None:
-                    snapshot["session_type"] = type(session_attr).__name__
-                    snapshot["session_attrs"] = [
-                        name for name in dir(session_attr) if not name.startswith("_")
-                    ]
-                snapshots.append(snapshot)
-            logger.debug(
-                "Unable to resolve context value for %s (explicit=%r). Sources: %s",
-                attr_candidates,
-                explicit,
-                snapshots,
-            )
-    except Exception:  # pragma: no cover - debug aid only
-        pass
     return None
-
-
-def _resolve_session_identifier(
-    ctx: Context[ServerSession, LifespanState] | None,
-    explicit: str | None,
-) -> str | None:
-    return _resolve_context_value(ctx, explicit, ("session_id", "id"))
-
-
-def _resolve_user_identifier(
-    ctx: Context[ServerSession, LifespanState] | None,
-    explicit: str | None,
-) -> str | None:
-    return _resolve_context_value(ctx, explicit, ("user_id", "user", "account_id"))
 
 
 def _ensure_state_token(
     ctx: Context[ServerSession, LifespanState] | None,
     key: str,
-) -> str | None:
+    prefix: str,
+) -> str:
+    """Persist and return a generated identifier scoped to the MCP session state."""
+
     if ctx is None:
-        return None
+        return _FALLBACK_TOKENS.setdefault(key, _random_identifier(prefix))
+
     state = getattr(ctx, "state", None)
     if state is None:
-        return None
-    token = secrets.token_hex(6)
+        return _FALLBACK_TOKENS.setdefault(key, _random_identifier(prefix))
+
+    token = _random_identifier(prefix)
     try:
         setter = getattr(state, "setdefault", None)
         if callable(setter):
@@ -273,7 +260,65 @@ def _ensure_state_token(
             existing = token
     except Exception:
         existing = token
-    return _sanitize_context_value(existing) or token
+
+    cleaned = _sanitize_context_value(existing) or token
+    _FALLBACK_TOKENS[key] = cleaned
+    return cleaned
+
+
+def _resolve_identifier(
+    ctx: Context[ServerSession, LifespanState] | None,
+    explicit: str | None,
+    keys: tuple[str, ...],
+    state_key: str,
+    token_prefix: str,
+) -> str:
+    """Prefer explicit/context values; otherwise issue a stable random token."""
+
+    candidate = _sanitize_context_value(explicit)
+    if candidate:
+        return candidate
+
+    candidate = _extract_context_value(ctx, keys)
+    if candidate:
+        return candidate
+
+    generated = _ensure_state_token(ctx, state_key, token_prefix)
+    if os.getenv("PAYMENTS_MCP_LOG_LEVEL", "INFO").upper() == "DEBUG":
+        logger.debug(
+            "Generated fallback %s identifier (keys=%s, explicit=%r) -> %s",
+            token_prefix,
+            keys,
+            explicit,
+            generated,
+        )
+    return generated
+
+
+def _resolve_session_identifier(
+    ctx: Context[ServerSession, LifespanState] | None,
+    explicit: str | None,
+) -> str:
+    return _resolve_identifier(
+        ctx,
+        explicit,
+        _SESSION_LOOKUP_KEYS,
+        _SESSION_TOKEN_KEY,
+        "session",
+    )
+
+
+def _resolve_user_identifier(
+    ctx: Context[ServerSession, LifespanState] | None,
+    explicit: str | None,
+) -> str:
+    return _resolve_identifier(
+        ctx,
+        explicit,
+        _USER_LOOKUP_KEYS,
+        _USER_TOKEN_KEY,
+        "user",
+    )
 
 
 @mcp.tool()
@@ -402,12 +447,7 @@ async def simulate_hotel_payment(
     state = _require_state()
 
     session_identifier = _resolve_session_identifier(ctx, session_id)
-    if session_identifier is None:
-        session_identifier = _ensure_state_token(ctx, "_payments_session_id")
-
     user_identifier = _resolve_user_identifier(ctx, user_id)
-    if user_identifier is None:
-        user_identifier = _ensure_state_token(ctx, "_payments_user_id")
 
     metadata = {
         "booking_type": "hotel",
@@ -526,12 +566,7 @@ async def simulate_flight_payment(
     state = _require_state()
 
     session_identifier = _resolve_session_identifier(ctx, session_id)
-    if session_identifier is None:
-        session_identifier = _ensure_state_token(ctx, "_payments_session_id")
-
     user_identifier = _resolve_user_identifier(ctx, user_id)
-    if user_identifier is None:
-        user_identifier = _ensure_state_token(ctx, "_payments_user_id")
 
     metadata = {
         "booking_type": "flight",

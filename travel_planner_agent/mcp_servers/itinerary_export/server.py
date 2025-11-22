@@ -19,6 +19,9 @@ from mcp.server.session import ServerSession
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_EXPORT_BASENAME = "trip-itinerary"
+
+
 @dataclass(slots=True)
 class ExportConfig:
     """Configuration for the itinerary export server."""
@@ -241,10 +244,23 @@ def _write_file(path: Path, content: str) -> int:
     return len(content.encode("utf-8"))
 
 
+def _compose_export_filename(
+    filename: str,
+    identifier: str,
+    extension: str,
+    default_basename: str = DEFAULT_EXPORT_BASENAME,
+) -> str:
+    """Derive a consistent file name for itinerary exports."""
+
+    base_label = filename.strip() or default_basename
+    composed_name = f"{base_label}-{identifier}"
+    return _sanitize_filename(composed_name, extension)
+
+
 @mcp.tool()
 async def save_itinerary_file(
     ctx: Context[ServerSession, LifespanState] | None = None,
-    filename: str = "trip-itinerary",
+    filename: str = DEFAULT_EXPORT_BASENAME,
     content: str = "",
     format: str = "md",
     subdirectory: str | None = None,
@@ -275,9 +291,11 @@ async def save_itinerary_file(
     state = _require_state()
     session_identifier = _resolve_session_identifier(ctx, session_id)
     normalized_identifier = _normalize_identifier(identifier, session_identifier)
-    base_label = filename.strip() or "trip-itinerary"
-    composed_name = f"{base_label}-{normalized_identifier}"
-    safe_name = _sanitize_filename(composed_name, format)
+    safe_name = _compose_export_filename(
+        filename,
+        normalized_identifier,
+        format,
+    )
     file_path = _resolve_export_path(
         state.config.base_directory, safe_name, subdirectory
     )
@@ -307,7 +325,7 @@ async def save_itinerary_file(
 @mcp.tool()
 async def save_itinerary_calendar(
     ctx: Context[ServerSession, LifespanState] | None = None,
-    filename: str = "trip-calendar",
+    filename: str = DEFAULT_EXPORT_BASENAME,
     events: Sequence[dict[str, str]] | None = None,
     subdirectory: str | None = None,
     identifier: str | None = None,
@@ -355,9 +373,11 @@ async def save_itinerary_calendar(
 
     session_identifier = _resolve_session_identifier(ctx, session_id)
     normalized_identifier = _normalize_identifier(identifier, session_identifier)
-    base_label = filename.strip() or "trip-calendar"
-    composed_name = f"{base_label}-{normalized_identifier}"
-    safe_name = _sanitize_filename(composed_name, "ics")
+    safe_name = _compose_export_filename(
+        filename,
+        normalized_identifier,
+        "ics",
+    )
     file_path = _resolve_export_path(
         state.config.base_directory, safe_name, subdirectory
     )
