@@ -664,7 +664,7 @@ of them can fulfill “save/share my itinerary” requests.
 2. Start the static server in a separate terminal:
 
    ```bash
-   python -m travel_planner_agent.mcp_servers.itinerary_export.web_server
+   python -m travel_planner_agent.web_server
    ```
 
    The server binds to `127.0.0.1` on port `8765` by default; override with

@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from .server import ExportConfig
+from .mcp_servers.itinerary_export.server import ExportConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def main() -> None:
     host = os.getenv("ITINERARY_EXPORT_HOST", "127.0.0.1")
     port = int(os.getenv("ITINERARY_EXPORT_PORT", "8765"))
     uvicorn.run(
-        "travel_planner_agent.mcp_servers.itinerary_export.web_server:app",
+        "travel_planner_agent.web_server:app",
         host=host,
         port=port,
         log_level=os.getenv("ITINERARY_EXPORT_SERVER_LOG_LEVEL", "info"),
