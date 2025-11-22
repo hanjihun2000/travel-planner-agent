@@ -154,8 +154,6 @@ def search_flight(
                     enriched["return_best_flights"] = return_data.get(
                         "best_flights", []
                     )
-                    # if return_data.get("other_flights"):
-                    #     enriched["return_other_flights"] = return_data["other_flights"]
                 else:
                     enriched["return_error"] = return_data["error_message"]
                 return_queries += 1
@@ -169,10 +167,6 @@ def search_flight(
             "status": "success",
             "best_flights": enriched_outbound,
         }
-        # TODO: ignore other_flights at this moment to not dump too many info to sub-agents
-        # other_flights = results.get("other_flights") or []
-        # if other_flights:
-        #     payload["other_flights"] = other_flights[:num_results]
         price_insights = results.get("price_insights")
         if price_insights:
             payload["price_insights"] = price_insights

@@ -88,7 +88,7 @@ def main() -> None:
         "travel_planner_agent.web_server:app",
         host=host,
         port=port,
-        log_level=os.getenv("ITINERARY_EXPORT_SERVER_LOG_LEVEL", "info"),
+        log_level=os.getenv("ITINERARY_EXPORT_LOG_LEVEL", "info"),
     )
 
 
