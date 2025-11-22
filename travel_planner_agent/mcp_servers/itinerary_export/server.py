@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import secrets
 from typing import Any, AsyncIterator, Sequence
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse, urlunparse
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -102,6 +102,47 @@ def _clean_token(value: str | None) -> str:
     return "".join(ch for ch in value if ch.isalnum())
 
 
+def _resolve_public_url(config: ExportConfig) -> str | None:
+    """Return the base URL that should prefix exported artifacts."""
+
+    candidate = (
+        os.getenv("ITINERARY_EXPORT_PUBLIC_URL") or config.public_url or ""
+    ).strip()
+    if candidate:
+        return candidate.rstrip("/")
+
+    host = (os.getenv("ITINERARY_EXPORT_HOST") or "127.0.0.1").strip()
+    port = (os.getenv("ITINERARY_EXPORT_PORT") or "8765").strip()
+
+    if host.startswith(("http://", "https://")):
+        base = host.rstrip("/")
+        if port and ":" not in base.split("//", 1)[-1]:
+            base = f"{base}:{port}"
+    else:
+        base = f"http://{host}"
+        if port:
+            base = f"{base}:{port}"
+
+    logger.debug("Defaulting itinerary export public URL to %s", base)
+    return base.rstrip("/")
+
+
+def _ensure_exports_prefix(base_url: str) -> str:
+    """Append the /exports segment when the base URL omits it."""
+
+    trimmed = base_url.rstrip("/")
+    parsed = urlparse(trimmed)
+    if parsed.scheme and parsed.netloc:
+        path = parsed.path.rstrip("/")
+        if path:
+            return trimmed
+        parsed = parsed._replace(path="/exports")
+        return urlunparse(parsed)
+    if trimmed.endswith("/exports"):
+        return trimmed
+    return f"{trimmed}/exports"
+
+
 def _resolve_session_identifier(
     ctx: Context[ServerSession, LifespanState] | None, explicit: str | None
 ) -> str | None:
@@ -171,11 +212,12 @@ def _ensure_unique_path(path: Path) -> tuple[Path, int]:
 
 
 def _build_download_url(config: ExportConfig, relative_path: Path) -> str | None:
-    public_url = os.getenv("ITINERARY_EXPORT_PUBLIC_URL") or config.public_url
-    if not public_url:
+    base_url = _resolve_public_url(config)
+    if not base_url:
         return None
+
     normalized = "/".join(relative_path.parts)
-    cleaned_public_url = public_url.rstrip("/")
+    cleaned_public_url = _ensure_exports_prefix(base_url)
     url = urljoin(f"{cleaned_public_url}/", normalized)
 
     download_token = (
