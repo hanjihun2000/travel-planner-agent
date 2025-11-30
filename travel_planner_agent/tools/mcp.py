@@ -7,14 +7,14 @@ import os
 import sys
 from pathlib import Path
 
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from mcp import StdioServerParameters
 
 LOGGER = logging.getLogger(__name__)
 
 
-AVAILABLE_MCP_TOOLSETS: list[MCPToolset] = []
+AVAILABLE_MCP_TOOLSETS: list[McpToolset] = []
 
 
 def _collect_postgres_env() -> dict[str, str] | None:
@@ -40,7 +40,7 @@ def _collect_postgres_env() -> dict[str, str] | None:
     return env
 
 
-def _register_postgres_toolset() -> MCPToolset | None:
+def _register_postgres_toolset() -> McpToolset | None:
     """Register the Postgres payments MCP toolset if configuration is present."""
 
     module_path = (
@@ -59,7 +59,7 @@ def _register_postgres_toolset() -> MCPToolset | None:
 
     module_name = "travel_planner_agent.mcp_servers.postgres_payments.server"
 
-    toolset = MCPToolset(
+    toolset = McpToolset(
         connection_params=StdioConnectionParams(
             server_params=StdioServerParameters(
                 command=sys.executable,
@@ -77,7 +77,7 @@ if toolset is not None:
     AVAILABLE_MCP_TOOLSETS.append(toolset)
 
 
-def _register_itinerary_export_toolset() -> MCPToolset | None:
+def _register_itinerary_export_toolset() -> McpToolset | None:
     module_path = (
         Path(__file__).resolve().parent.parent
         / "mcp_servers"
@@ -89,7 +89,7 @@ def _register_itinerary_export_toolset() -> MCPToolset | None:
         return None
 
     module_name = "travel_planner_agent.mcp_servers.itinerary_export.server"
-    toolset = MCPToolset(
+    toolset = McpToolset(
         connection_params=StdioConnectionParams(
             server_params=StdioServerParameters(
                 command=sys.executable,

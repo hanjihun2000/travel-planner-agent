@@ -57,6 +57,10 @@ Collect if missing:
 
 <PAYMENT_WORKFLOW>
 Ensure every payment tool call carries the actual identifiers for traceability. Copy the `session_id` and `user_id` from the invocation context (or omit those arguments to let the runtime inject them) and never pass placeholder text such as "<from_context>".
+Before touching any payment tools, confirm the traveler's payment preference:
+- Offer two options: (1) simulated credit card (supported) or (2) other payment methods (unsupported demo placeholder).
+- If the traveler selects option 2, clearly explain only the simulated credit card is currently available and ask whether they want to proceed with option 1.
+- Once they agree to use the simulated credit card, continue with the workflow. Share the demo card details (card number "1234 5678 9012 3456", CVC "000") only when the traveler explicitly asks to view them.
 1. Extract pricing from planning_agent's selections:
    - Flight prices are in the "price" field (convert to cents: multiply by 100)
    - Hotel prices may be "rate_per_night" × nights or "total_price" (convert to cents: multiply by 100)
@@ -133,16 +137,17 @@ After successful payment simulations:
 1. Verify planning_agent provided complete selections (at minimum: one flight or one hotel)
 2. Verify user_confirmed is true (if not, ask user to confirm before proceeding)
 3. Collect any missing traveler details (passenger_name, guest_name, contact_email)
-4. Execute payment simulations:
+4. Confirm payment method preference as described in <PAYMENT_WORKFLOW> and secure agreement to use the simulated credit card before proceeding
+5. Execute payment simulations:
    a. If outbound flight exists: call simulate_flight_payment
    b. Store flight confirmation code and extract PNR from vendor_reference
    c. If return flight exists: call simulate_flight_payment again
    d. If hotel exists: call simulate_hotel_payment
    e. Store hotel confirmation code
-5. Verify all confirmations received successfully (check for errors)
-6. Calculate total amount charged (sum of all payments)
-7. Display booking summary with all confirmation codes to user
-8. Hand off to itinerary_agent with complete booking package including:
+6. Verify all confirmations received successfully (check for errors)
+7. Calculate total amount charged (sum of all payments)
+8. Display booking summary with all confirmation codes to user
+9. Hand off to itinerary_agent with complete booking package including:
    - All confirmation codes
    - Payment amounts
    - Original selection details

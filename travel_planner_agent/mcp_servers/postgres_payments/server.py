@@ -161,6 +161,24 @@ _USER_LOOKUP_KEYS = ("user_id", "userId", "account_id", "accountId", "user")
 
 _FALLBACK_TOKENS: dict[str, str] = {}
 
+_SIMULATED_CARD_NUMBER = "1234 5678 9012 3456"
+_SIMULATED_CARD_CVC = "000"
+
+
+def _simulated_card_metadata(cardholder_name: str | None) -> dict[str, Any]:
+    """Return consistent metadata describing the demo payment method."""
+
+    compact_number = _SIMULATED_CARD_NUMBER.replace(" ", "")
+    return {
+        "type": "simulated_credit_card",
+        "label": "Simulated Credit Card",
+        "card_number": _SIMULATED_CARD_NUMBER,
+        "card_last4": compact_number[-4:],
+        "card_cvc": _SIMULATED_CARD_CVC,
+        "cardholder_name": cardholder_name,
+        "demo_payment": True,
+    }
+
 
 def _sanitize_context_value(value: Any) -> str | None:
     """Return cleaned context metadata, ignoring placeholder markers."""
@@ -359,8 +377,16 @@ async def ping_database(
 async def list_payment_activity(
     ctx: Context[ServerSession, LifespanState] | None = None,
     limit: int = 20,
+    session_id: str | None = None,
+    user_id: str | None = None,
+    confirmation_code: str | None = None,
+    vendor: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Return recent simulated payment requests and transactions."""
+    """Return recent simulated payment requests and transactions.
+
+    Filters are optional and permit narrowing results by session, user, confirmation code,
+    or vendor. Filtering happens against both request and transaction rows where sensible.
+    """
 
     if limit <= 0:
         raise ValueError("limit must be positive")
@@ -386,14 +412,48 @@ async def list_payment_activity(
             pt.created_at AS transaction_created_at
         FROM payment_requests pr
         LEFT JOIN payment_transactions pt ON pt.request_id = pr.id
-        ORDER BY pr.created_at DESC, COALESCE(pt.created_at, pr.created_at) DESC
-        LIMIT %s
-        """
+    """
+
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    def _append_condition(condition: str, *values: Any) -> None:
+        conditions.append(condition)
+        params.extend(values)
+
+    session_filter = _sanitize_context_value(session_id)
+    if session_filter:
+        _append_condition(
+            "(pr.session_id = %s OR pt.session_id = %s)", session_filter, session_filter
+        )
+
+    user_filter = _sanitize_context_value(user_id)
+    if user_filter:
+        _append_condition(
+            "(pr.user_id = %s OR pt.user_id = %s)", user_filter, user_filter
+        )
+
+    confirmation_filter = _sanitize_context_value(confirmation_code)
+    if confirmation_filter:
+        _append_condition("pt.confirmation_code = %s", confirmation_filter)
+
+    vendor_filter = _sanitize_context_value(vendor)
+    if vendor_filter:
+        _append_condition("pr.vendor = %s", vendor_filter)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY pr.created_at DESC, COALESCE(pt.created_at, pr.created_at) DESC LIMIT %s"
+    params.append(limit)
+
+    if os.getenv("PAYMENTS_MCP_LOG_LEVEL", "INFO").upper() == "DEBUG":
+        logger.debug("list_payment_activity filters applied: %s", conditions)
 
     try:
         async with state.pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, (limit,))
+                await cur.execute(query, tuple(params))
                 rows = await cur.fetchall()
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.exception("list_payment_activity failed: %s", exc)
@@ -454,6 +514,7 @@ async def simulate_hotel_payment(
         "check_in_date": check_in_date,
         "check_out_date": check_out_date,
         "guest_name": guest_name,
+        "payment_method": _simulated_card_metadata(guest_name),
     }
 
     # Generate simulated confirmation code
@@ -501,7 +562,9 @@ async def simulate_hotel_payment(
                         f"VENDOR-{secrets.token_hex(3).upper()}",
                         session_identifier,
                         user_identifier,
-                        _jsonb({"payment_method": "simulated_credit_card"}),
+                        _jsonb(
+                            {"payment_method": _simulated_card_metadata(guest_name)}
+                        ),
                     ),
                 )
                 transaction_row = await cur.fetchone()
@@ -574,6 +637,7 @@ async def simulate_flight_payment(
         "arrival_airport": arrival_airport,
         "departure_date": departure_date,
         "passenger_name": passenger_name,
+        "payment_method": _simulated_card_metadata(passenger_name),
     }
 
     # Generate simulated PNR/confirmation code
@@ -622,7 +686,14 @@ async def simulate_flight_payment(
                         pnr,
                         session_identifier,
                         user_identifier,
-                        _jsonb({"payment_method": "simulated_credit_card", "pnr": pnr}),
+                        _jsonb(
+                            {
+                                "payment_method": _simulated_card_metadata(
+                                    passenger_name
+                                ),
+                                "pnr": pnr,
+                            }
+                        ),
                     ),
                 )
                 transaction_row = await cur.fetchone()
