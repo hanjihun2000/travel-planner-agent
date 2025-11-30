@@ -5,6 +5,8 @@ aiosignal==1.4.0
 alembic==1.16.5
 annotated-types==0.7.0
 anyio==4.10.0
+pytest==8.3.3
+pytest-asyncio==0.24.0
 attrs==25.3.0
 Authlib==1.6.3
 cachetools==5.5.2

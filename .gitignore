@@ -31,6 +31,7 @@ wheels/
 .installed.cfg
 *.egg
 .ruff_cache/
+.pytest_cache/
 
 # Virtual Environment
 venv/
@@ -52,3 +53,4 @@ google-cloud-cli-linux-x86_64.tar.gz
 assets/
 
 exports/
+travel_planner_agent/.adk/*
