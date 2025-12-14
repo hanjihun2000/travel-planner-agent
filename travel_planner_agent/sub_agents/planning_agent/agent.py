@@ -5,19 +5,14 @@ from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
 from google.genai.types import ThinkingConfig
 
-# from google.adk.models.lite_llm import LiteLlm
-
 from travel_planner_agent.sub_agents.planning_agent import prompt
 from travel_planner_agent.tools.search import search_flight, search_hotel
-
-# search_web
 
 thinking_config = ThinkingConfig(include_thoughts=True, thinking_budget=256)
 
 planner = BuiltInPlanner(thinking_config=thinking_config)
 
 planning_agent = Agent(
-    # model=LiteLlm(model=f"{getenv('OLLAMA_MODEL_ID', 'ollama_chat/qwen3:8b')}"),
     model="gemini-2.5-flash",
     name="planning_agent",
     description="Specialist that collects requirements and drafts trip plans for travelers.",

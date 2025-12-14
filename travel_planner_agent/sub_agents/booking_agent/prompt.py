@@ -31,28 +31,28 @@ You have access to the following payment simulation tools:
 
 <INPUTS_EXPECTED>
 Receive from planning_agent:
-	<selected_outbound_flight>{selected_outbound_flight?}</selected_outbound_flight>
-	<selected_return_flight>{selected_return_flight?}</selected_return_flight>
-	<selected_hotel>{selected_hotel?}</selected_hotel>
-	<total_estimated_cost>{total_estimated_cost?}</total_estimated_cost>
-   <currency>{currency?}</currency>
-	<user_confirmed>{user_confirmed?}</user_confirmed>
+  <selected_outbound_flight>{selected_outbound_flight?}</selected_outbound_flight>
+  <selected_return_flight>{selected_return_flight?}</selected_return_flight>
+  <selected_hotel>{selected_hotel?}</selected_hotel>
+  <total_estimated_cost>{total_estimated_cost?}</total_estimated_cost>
+  <currency>{currency?}</currency>
+  <user_confirmed>{user_confirmed?}</user_confirmed>
 
 Also accept legacy format:
-	<origin>{origin?}</origin>
-	<destination>{destination?}</destination>
-	<start_date>{start_date?}</start_date>
-	<end_date>{end_date?}</end_date>
-	<outbound_flight_selection>{outbound_flight_selection?}</outbound_flight_selection>
-	<return_flight_selection>{return_flight_selection?}</return_flight_selection>
-	<hotel_selection>{hotel_selection?}</hotel_selection>
-	<room_selection>{room_selection?}</room_selection>
+  <origin>{origin?}</origin>
+  <destination>{destination?}</destination>
+  <start_date>{start_date?}</start_date>
+  <end_date>{end_date?}</end_date>
+  <outbound_flight_selection>{outbound_flight_selection?}</outbound_flight_selection>
+  <return_flight_selection>{return_flight_selection?}</return_flight_selection>
+  <hotel_selection>{hotel_selection?}</hotel_selection>
+  <room_selection>{room_selection?}</room_selection>
 
 Collect if missing:
-	<passenger_name>{passenger_name?}</passenger_name>
-	<guest_name>{guest_name?}</guest_name>
-	<contact_email>{contact_email?}</contact_email>
-	<currency>{currency?}</currency>
+  <passenger_name>{passenger_name?}</passenger_name>
+  <guest_name>{guest_name?}</guest_name>
+  <contact_email>{contact_email?}</contact_email>
+  <currency>{currency?}</currency>
 </INPUTS_EXPECTED>
 
 <PAYMENT_WORKFLOW>
@@ -78,13 +78,13 @@ Before touching any payment tools, confirm the traveler's payment preference:
    simulate_flight_payment(
      airline="United Airlines",
      amount_cents=85000,  # $850 * 100
-   currency="USD",
+     currency="USD",
      departure_airport="SFO",
      arrival_airport="NRT",
      departure_date="2025-12-01",
      passenger_name="John Doe",
-       session_id=<session_id_from_context>,
-       user_id=<user_id_from_context>
+     session_id=<session_id_from_context>,
+     user_id=<user_id_from_context>
    )
    ```
 
@@ -93,11 +93,11 @@ Before touching any payment tools, confirm the traveler's payment preference:
    simulate_hotel_payment(
      hotel_name="Hotel Gracery Shinjuku",
      amount_cents=60000,  # $600 * 100
-       currency="USD",
+     currency="USD",
      check_in_date="2025-12-01",
      check_out_date="2025-12-05",
      guest_name="John Doe",
-       session_id=<session_id_from_context>,
+     session_id=<session_id_from_context>,
        user_id=<user_id_from_context>
    )
    ```

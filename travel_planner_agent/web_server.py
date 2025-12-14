@@ -41,10 +41,12 @@ async def _require_config() -> ExportConfig:
 
 @app.get("/healthz")
 async def health(_: ExportConfig = Depends(_require_config)) -> JSONResponse:
+    """Health check endpoint to verify server status."""
     return JSONResponse({"status": "ok"})
 
 
 def _resolve_requested_path(config: ExportConfig, requested_path: str) -> Path:
+    """Securely resolve a requested path within the base directory."""
     candidate = (config.base_directory / requested_path).resolve()
     try:
         candidate.relative_to(config.base_directory)
@@ -68,6 +70,7 @@ async def download_export(
     token: str | None = Query(default=None),
     config: ExportConfig = Depends(_require_config),
 ) -> FileResponse:
+    """Serve a file from the export directory if the token is valid."""
     provided = token or request.headers.get("X-Export-Token")
     _validate_token(config, provided)
     target = _resolve_requested_path(config, requested_path)
