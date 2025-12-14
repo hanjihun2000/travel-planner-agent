@@ -53,4 +53,5 @@ google-cloud-cli-linux-x86_64.tar.gz
 assets/
 
 exports/
-travel_planner_agent/.adk/*
+travel_planner_agent/.adk/*exports/
+*.evalset.json
